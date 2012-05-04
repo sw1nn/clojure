@@ -177,7 +177,7 @@
                                                                impl-pkg-name "/" prefix (.getName m)
                                                                " not defined?)"))))
         emit-forwarding-method
-        (fn [name pclasses rclass as-static else-gen]
+        (fn [name pclasses rclass as-static is-varargs else-gen]
           (let [mname (str name)
                 pmetas (map meta pclasses)
                 pclasses (map the-class pclasses)
@@ -186,7 +186,7 @@
                 rtype ^Type (totype rclass)
                 m (new Method mname rtype ptypes)
                 is-overload (seq (overloads mname))
-                gen (new GeneratorAdapter (+ (. Opcodes ACC_PUBLIC) (if as-static (. Opcodes ACC_STATIC) 0)) 
+                gen (new GeneratorAdapter (+ (. Opcodes ACC_PUBLIC) (if as-static (. Opcodes ACC_STATIC) 0) (if is-varargs (. Opcodes ACC_VARARGS) 0)) 
                          m nil nil cv)
                 found-label (. gen (newLabel))
                 else-label (. gen (newLabel))
@@ -288,13 +288,14 @@
     
                                         ;ctors
     (doseq [[pclasses super-pclasses] ctor-sig-map]
-      (let [pclasses (map the-class pclasses)
+      (let [is-varargs (:varargs (meta pclasses))
+            pclasses (map the-class pclasses)
             super-pclasses (map the-class super-pclasses)
             ptypes (to-types pclasses)
             super-ptypes (to-types super-pclasses)
             m (new Method "<init>" (. Type VOID_TYPE) ptypes)
             super-m (new Method "<init>" (. Type VOID_TYPE) super-ptypes)
-            gen (new GeneratorAdapter (. Opcodes ACC_PUBLIC) m nil nil cv)
+            gen (new GeneratorAdapter (+  (. Opcodes ACC_PUBLIC) (if is-varargs (. Opcodes ACC_VARARGS) 0)) m nil nil cv)
             no-init-label (. gen newLabel)
             end-label (. gen newLabel)
             no-post-init-label (. gen newLabel)
@@ -388,7 +389,7 @@
                                         ;add methods matching supers', if no fn -> call super
     (let [mm (non-private-methods super)]
       (doseq [^java.lang.reflect.Method meth (vals mm)]
-             (emit-forwarding-method (.getName meth) (.getParameterTypes meth) (.getReturnType meth) false
+             (emit-forwarding-method (.getName meth) (.getParameterTypes meth) (.getReturnType meth) false (.isVarArgs meth)
                                      (fn [^GeneratorAdapter gen ^Method m]
                                        (. gen (loadThis))
                                         ;push args
@@ -403,13 +404,13 @@
                 (if (contains? mm (method-sig meth))
                   mm
                   (do
-                    (emit-forwarding-method (.getName meth) (.getParameterTypes meth) (.getReturnType meth) false
+                    (emit-forwarding-method (.getName meth) (.getParameterTypes meth) (.getReturnType meth) false (.isVarArgs meth)
                                             emit-unsupported)
                     (assoc mm (method-sig meth) meth))))
               mm (mapcat #(.getMethods ^Class %) interfaces))
                                         ;extra methods
        (doseq [[mname pclasses rclass :as msig] methods]
-         (emit-forwarding-method mname pclasses rclass (:static (meta msig))
+         (emit-forwarding-method mname pclasses rclass (:static (meta msig)) (:varargs (meta msig))
                                  emit-unsupported))
                                         ;expose specified overridden superclass methods
        (doseq [[local-mname ^java.lang.reflect.Method m] (reduce1 (fn [ms [[name _ _] m]]
